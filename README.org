@@ -1,0 +1,301 @@
+* Preamble
+
+This mail setup requires several parts to work: something to retrieve mail,
+something to index mail, something to send mail, and an MUA to bring it all together.
+This guide contains instructions to do all this on macOS.
+
+** TODO
+
+Clean this up and make it more easily consumable.
+Maybe add a way to configure all of this with Puppet.
+
+* GPG
+
+We'll be using GPG to manage password files.
+
+Install GnuPG, gpg-agent, and pinentry-mac:
+
+#+BEGIN_SRC 
+$ brew install gpg gpg-agent pinentry-mac
+#+END_SRC
+
+Now that GnuPG is installed, we need to import or generate a key.
+
+#+BEGIN_SRC 
+$ gpg --gen-key
+#+END_SRC
+
+Follow the prompts.
+
+Next, we need to create a directory to store password files:
+
+#+BEGIN_SRC 
+$ mkdir ~/.passwd
+#+END_SRC
+
+Create some encrypted password files:
+
+#+BEGIN_SRC 
+$ gpg --output <name>.gpg --encrypt --recipient <you>@example.com <source-file> && rm <source-file>
+#+END_SRC
+
+<source-file> is a file that contains a password in plain text. The above takes that file, encrypts it, and
+deletes it after encryption executes successfully.
+
+We want gpg-agent to behave correctly, so we create ~/.gnupg/gpg-agent.config 
+(or tell GPG that you put it elsewhere using the GNUPGHOME environment variable):
+
+#+BEGIN_SRC 
+# Connects gpg-agent to the OSX keychain via the brew-installed
+# pinentry program from GPGtools. This is the OSX 'magic sauce',
+# allowing the gpg key's passphrase to be stored in the login
+# keychain, enabling automatic key signing.
+
+pinentry-program /usr/local/bin/pinentry-mac
+#+END_SRC
+
+* mbsync
+
+The next piece of the puzzle is the thing that syncs
+remote mail to a local directory. We'll use isync.
+
+Install it:
+
+#+BEGIN_SRC 
+$ brew install isync
+#+END_SRC
+
+mbsync relies on a CA certificate bundle as its trust store (as opposed to
+macOS using Keychain, which iSync doesn't support). Let's make one:
+
+#+BEGIN_SRC 
+$ wget https://curl.haxx.se/download/curl-7.57.0.tar.gz
+$ tar xvf curl-7.57.0.tar.gz
+$ cd curl-7.57.0/lib
+$ ./mk-ca-bundle.crt
+$ mv ca-bundle.crt ~
+#+END_SRC
+
+Now we can tell mbsync how to behave via =~/.mbsyncrc=:
+
+#+BEGIN_SRC 
+IMAPAccount gmail
+# Address to connect to
+Host imap.gmail.com
+User <name>@gmail.com
+# mbsync barfed the first time I tried to run it;
+# https://sourceforge.net/p/isync/mailman/message/34409711/ held the answer
+AuthMechs LOGIN
+# To store the password in an encrypted file use PassCmd instead of Pass
+PassCmd "gpg -q --for-your-eyes-only --no-tty -d ~/.passwd/<name>.gpg"
+#
+# Use SSL
+SSLType IMAPS
+# For macOS, use cURL to create a cert bundle and point to it here
+CertificateFile ~/ca-bundle.crt
+
+IMAPStore gmail-remote
+Account gmail
+
+MaildirStore gmail-local
+# The trailing "/" is important
+Path ~/.mail/gmail/
+Inbox ~/.mail/gmail/Inbox
+
+Channel gmail
+Master :gmail-remote:
+Slave :gmail-local:
+# Exclude everything under the internal [Gmail] folder, except the interesting folders
+Patterns * ![Gmail]* "[Gmail]/Sent Mail" "[Gmail]/Starred" "[Gmail]/All Mail"
+# Or include everything
+#Patterns *
+# Automatically create missing mailboxes, both locally and on the server
+Create Both
+# Save the synchronization state files in the relevant directory
+SyncState *
+#+END_SRC
+
+Now's probably a good time to reboot. You can kill gpg-agent to reload its config file,
+but =pinentry-mac= doesn't like taking keyboard input until after a reboot.
+
+Running =mbsync gmail= should now work. Don't forget to check "Save to Keychain."
+
+* notmuch
+
+We can install notmuch now. Install it with support for emacs and Python, just in case:
+
+#+BEGIN_SRC 
+$ brew install notmuch --with-emacs --with-python3
+#+END_SRC
+
+Now, run =notmuch setup= and follow the prompts. Afterwards, run =notmuch new= to populate the notmuch database.
+
+* msmtp
+
+Now we need something to send mail.
+
+Install msmtp:
+
+#+BEGIN_SRC 
+$ brew install msmtp
+#+END_SRC
+
+Create ~/.msmtprc and add the following:
+
+#+BEGIN_SRC 
+# Set default values for all following accounts.
+defaults
+auth           on
+tls            on
+tls_trust_file /Users/<name>/ca-bundle.crt
+logfile        ~/.msmtp.log
+
+# Gmail
+account        gmail
+host           smtp.gmail.com
+port           587
+from           <name>@gmail.com
+user           <name>
+passwordeval   "echo `gpg -q --for-your-eyes-only --no-tty -d ~/.passwd/minort.gpg`"
+
+# Set a default account
+account default : gmail
+#+END_SRC
+
+Test your configuration with the following:
+
+#+BEGIN_SRC 
+$ msmtp --account=<account> -Sd
+#+END_SRC
+
+* Bring it all together with emacs
+
+Put this in your init.el:
+
+#+BEGIN_SRC 
+;; Mail stuff
+;; tell emacs about the path to notmuch
+(setenv "PATH" (concat (getenv "PATH") ":/usr/local/bin"))
+(setq exec-path (append exec-path '("/usr/local/bin")))
+;; tell emacs about notmuch
+(autoload 'notmuch "notmuch" "notmuch mail" t)
+;; use msmtp
+(setq message-send-mail-function 'message-send-mail-with-sendmail)
+(setq sendmail-program "/usr/local/bin/msmtp")
+;; tell msmtp to choose the SMTP server according to the from field in
+;; the outgoing email
+(setq message-sendmail-extra-arguments '("--read-envelope-from"))
+(setq message-sendmail-f-is-evil 't)
+;; end mail stuff
+#+END_SRC
+
+That should be enough to do the very basics.
+* Extras
+
+This section outlines all of the extra features that
+go beyond basic functionality like sending, receiving,
+and viewing mail. 
+
+These extras might include:
+- Filtering spam and other messages,
+- automation with post and pre sync hook scripts,
+- and other TBD things.
+
+** Spam Filtering
+
+I've searched for ways to do this and found many suggestions.
+I happened upon [[https://notmuchmail.org/pipermail/notmuch/2013/014572.html][this post on a notmuch list]] and [[https://github.com/tminor/notspam][this github project]].
+I attempted to get =notspam= to work but had no luck. Instead of
+struggling to get it to behave, I instead wrote a Python script
+to do it (found in =.scripts=).
+
+*** Setup Instructions
+
+**** bogofilter
+
+I decided to go with =bogofilter= for spam filtering.
+After much gnashing of teeth, I deduced the following 
+information regarding installation:
+
+First, you'll need to install the correct version of 
+Berkeley-DB; brew installs Berkeley DB version 6 as 
+a dependency, but I'm not sure it actually works.
+
+When running =bogofilter -s < /dev/null=, I got an
+error that read:
+
+#+BEGIN_SRC 
+(null)
+Can't open file 'wordlist.db' in directory '/Users/tminor/.bogofilter'.
+error #22 - Invalid argument.
+
+Make sure that the database version this program is linked against
+can handle the format of the data base file (after updates in particular).
+#+END_SRC
+
+I found information in several places insinuating that
+only Berkeley DB version 4 is supported (bogofilter last
+appears to have been updated in 2013). 
+
+So. Install Berkeley DB version 4:
+
+#+BEGIN_SRC 
+$ brew install berkeley-db@4
+#+END_SRC
+
+Then download bogofilter's latest source files:
+
+#+BEGIN_SRC
+$ wget https://downloads.sourceforge.net/project/bogofilter/bogofilter-1.2.4/bogofilter-1.2.4.tar.bz2
+$ tar -vxjf bogofilter-1.2.4.tar.bz2
+$ cd bogofilter-1.2.4
+#+END_SRC
+
+Follow the =INSTALL= instructions. (I didn't have to make any changes;
+it Just Worked [TM].)
+
+You should get a return about the number of messages trained.
+
+*** Training
+
+To train bogofilter, I used the following steps:
+
+In GMail, search for "label:promotions", and apply a new filter; in
+my case, I added a label called "SpamTraining". When =mbsync= grabs mail,
+it will create a new folder by that name under the maildir.
+
+Tag all mail in that directory with =notmuch=:
+
+#+BEGIN_SRC 
+$ notmuch tag +spam -- path:"gmail/SpamTraining/cur"
+#+END_SRC
+
+Now, use =notmuch= to train =bogofilter=:
+
+#+BEGIN_SRC 
+# some spam
+$ notmuch search --output=files tag:spam | xargs bogofilter -svB
+# and some ham
+$ notmuch search --output=files NOT tag:spam NOT path:gmail/SpamTraining/new | xargs bogofilter -nvB
+#+END_SRC
+
+After =bogofilter= has been trained, feel free to remove the spam samples
+from your machine.
+
+*** Training with a .mbox file
+
+Alternatively, you can export the mail using Google Takeout,
+which you can find [[https://takeout.google.com/settings/takeout][here]]. You'll have to follow the above steps
+and select the label as the desired target for downloading.
+
+This is probably a good strategy for downloading samples for future
+training in case you need to retrain. I'm guessing the same procedure
+could be followed for training ham, but you'd have to figure out 
+how to find ham and apply labels in GMail first. I found that
+=-{label:promotions and label:social}= worked reasonably well as
+a ham search query, but it still captured some stuff I didn't care 
+to have in my inbox.
+
+** Mail Filtering with afew
+
+For initial tagging, we'll use afew. Thankfully, afew appears to be pretty simple.

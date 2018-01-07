@@ -1,5 +1,3 @@
-# This script uses bogofilter to classify spam.
-
 import subprocess
 import notmuch
 import sys
@@ -9,6 +7,7 @@ import os
 db = notmuch.Database(mode=1)
 # we only care about new stuff
 query = db.create_query('tag:new')
+
 # path to binary
 bogofilter = '/usr/local/bin/bogofilter'
 
