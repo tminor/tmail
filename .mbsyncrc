@@ -1,30 +1,51 @@
-IMAPAccount gmail
-# Address to connect to
-Host imap.gmail.com
-User minort@gmail.com
+IMAPAccount work
+host imap.gmail.com
+user thomas.minor@usg.edu
 AuthMechs LOGIN
-# To store the password in an encrypted file use PassCmd instead of Pass
-PassCmd "gpg --use-agent --batch -d /Users/tminor/.passwd/minort.gpg"
-#
-# Use SSL
+PassCmd "gpg --use-agent --batch -d /Users/tminor/.passwd/work.gpg"
 SSLType IMAPS
-# The following line should work. If get certificate errors, uncomment the two following lines and read the "Troubleshooting" section.
-# From https://apple.stackexchange.com/questions/256898/ssl-error-with-mbsync
 CertificateFile /Users/tminor/Misc/certs/gmail.crt
-#CertificateFile ~/.cert/imap.gmail.com.pem
-#CertificateFile ~/.cert/Equifax_Secure_CA.pem
 
-IMAPStore gmail-remote
-Account gmail
+#IMAPAccount gmail
+#Host imap.gmail.com
+#User minort@gmail.com
+#AuthMechs LOGIN
+## To store the password in an encrypted file use PassCmd instead of Pass
+#PassCmd "gpg --use-agent --batch -d /Users/tminor/.passwd/minort.gpg"
+#SSLType IMAPS
+## From https://apple.stackexchange.com/questions/256898/ssl-error-with-mbsync
+#CertificateFile /Users/tminor/Misc/certs/gmail.crt
 
-MaildirStore gmail-local
-# The trailing "/" is important
-Path ~/.mail/gmail/
-Inbox ~/.mail/gmail/Inbox
+#IMAPStore gmail-remote
+#Account gmail
 
-Channel gmail
-Master :gmail-remote:
-Slave :gmail-local:
+IMAPStore work-remote
+Account work
+
+#MaildirStore gmail-local
+## The trailing "/" is important
+#Path ~/.mail/gmail/
+#Inbox ~/.mail/gmail/Inbox
+
+MaildirStore work-local
+Path ~/.mail/work/
+Inbox ~/.mail/work/Inbox
+
+#Channel gmail
+#Master :gmail-remote:
+#Slave :gmail-local:
+## Exclude everything under the internal [Gmail] folder, except the interesting folders
+#Patterns * ![Gmail]* "[Gmail]/Sent Mail" "[Gmail]/Starred" "[Gmail]/All Mail"
+## Or include everything
+##Patterns *
+## Automatically create missing mailboxes, both locally and on the server
+#Create Both
+## Save the synchronization state files in the relevant directory
+#SyncState *
+
+Channel work
+Master :work-remote:
+Slave :work-local:
 # Exclude everything under the internal [Gmail] folder, except the interesting folders
 Patterns * ![Gmail]* "[Gmail]/Sent Mail" "[Gmail]/Starred" "[Gmail]/All Mail"
 # Or include everything
