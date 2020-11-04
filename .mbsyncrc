@@ -1,56 +1,80 @@
+# [Global]
+
+# Create missing mailboxes on master/slave
+Create Both
+# Equivalent of --full on command line
+Sync All
+# Tells mbsync to save its state to slave mailbox
+SyncState *
+# Necessary to avoid duplicate files
+Expunge Both
+
+# [IMAP Settings]
+
+# Define work account
 IMAPAccount work
-host imap.gmail.com
-user thomas.minor@usg.edu
+Host localhost
+Port 1143
+User user@example.com
+PassCmd "echo foo"
+SSLType None
 AuthMechs LOGIN
-PassCmd "gpg --use-agent --batch -d /Users/tminor/.passwd/work.gpg"
-SSLType IMAPS
-CertificateFile /Users/tminor/Misc/certs/gmail.crt
+CertificateFile /etc/ssl/certs/ca-bundle.crt
+# Set IMAP timeout to avoid timeout on syncing of big files
+Timeout 300
 
-#IMAPAccount gmail
-#Host imap.gmail.com
-#User minort@gmail.com
-#AuthMechs LOGIN
-## To store the password in an encrypted file use PassCmd instead of Pass
-#PassCmd "gpg --use-agent --batch -d /Users/tminor/.passwd/minort.gpg"
-#SSLType IMAPS
-## From https://apple.stackexchange.com/questions/256898/ssl-error-with-mbsync
-#CertificateFile /Users/tminor/Misc/certs/gmail.crt
+# [Stores]
 
-#IMAPStore gmail-remote
-#Account gmail
+# Define O365 remote store and tell it to use work account defined
+# above
 
 IMAPStore work-remote
 Account work
 
-#MaildirStore gmail-local
-## The trailing "/" is important
-#Path ~/.mail/gmail/
-#Inbox ~/.mail/gmail/Inbox
-
+# Define local store to sync with O365 remote
 MaildirStore work-local
-Path ~/.mail/work/
-Inbox ~/.mail/work/Inbox
+# Not sure - docs recommend it
+Subfolders Verbatim
+# Path to local store
+Path ~/mail/work/
+# Tell mbsync where to put INBOX
+Inbox ~/mail/work/Inbox
 
-#Channel gmail
-#Master :gmail-remote:
-#Slave :gmail-local:
-## Exclude everything under the internal [Gmail] folder, except the interesting folders
-#Patterns * ![Gmail]* "[Gmail]/Sent Mail" "[Gmail]/Starred" "[Gmail]/All Mail"
-## Or include everything
-##Patterns *
-## Automatically create missing mailboxes, both locally and on the server
-#Create Both
-## Save the synchronization state files in the relevant directory
-#SyncState *
+# [Channels]
 
-Channel work
+Channel work-inbox
 Master :work-remote:
 Slave :work-local:
-# Exclude everything under the internal [Gmail] folder, except the interesting folders
-Patterns * ![Gmail]* "[Gmail]/Sent Mail" "[Gmail]/Starred" "[Gmail]/All Mail"
-# Or include everything
-#Patterns *
-# Automatically create missing mailboxes, both locally and on the server
-Create Both
-# Save the synchronization state files in the relevant directory
-SyncState *
+Patterns "INBOX"
+
+# As above but sync "Sent Items"
+
+# Channel work-sent
+# Master :work-remote:"Sent"
+# Slave :work-local:"Sent Items"
+# Patterns "Sent"
+
+# And again with Updates
+
+# Channel work-updates
+# Master :work-remote:"Updates"
+# Slave :work-local:"Updates"
+# Patterns "Updates"
+
+# Archive
+
+# Channel work-archive
+# Master :work-remote:"Archive"
+# Slave :work-local:Archive
+# Patterns "Archive"
+
+# [Groups]
+
+# Finally, group all channels together; probably not particularly
+# useful
+
+Group work
+Channel work-inbox
+# Channel work-sent
+# Channel work-updates
+# Channel work-archive

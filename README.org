@@ -1,207 +1,371 @@
-* Preamble
+* Mail via Emacs
+:PROPERTIES:
+:HASH:     cc9f0e49e2c55866ea2723ddf01c6b92
+:MODIFIED: [2020-11-04 Wed 14:21]
+:END:
 
-This mail setup requires several parts to work: something to retrieve mail,
-something to index mail, something to send mail, and an MUA to bring it all together.
-This guide contains instructions to do all this on macOS.
+I began consuming mail with Emacs and Notmuch when I was but a young
+boy... it was the year 2018... a simpler time, to be sure.
 
-** TODO
+Setting all of this up was relatively simple in the beginning. (You
+can see what I mean by checking previous revisions of this file.) In
+the intervening years things like multifactor authentication have
+taken the world by storm and made it nigh impossible to use IMAP to
+sync lovely mail messages. Those were the days...
 
-Clean this up and make it more easily consumable.
-Maybe add a way to configure all of this with Puppet.
+* DavMail
+:PROPERTIES:
+:HASH:     48eb6c0f82df24bc6d8ab5675e3a74cc
+:MODIFIED: [2020-11-04 Wed 13:43]
+:END:
 
-* GPG
+*Possibly optional*: I use Outlook at work, so if you're not required to
+use MFA, you can probably skip this step.
 
-We'll be using GPG to manage password files.
+Install [[https://github.com/mguessan/davmail][DavMail]]. If you're a Fedora user, you can install DavMail via
+[[https://copr.fedorainfracloud.org/coprs/mguessan/davmail/][COPR]]. Otherwise, choose from the following:
 
-Install GnuPG, gpg-agent, and pinentry-mac:
+- [[http://davmail.sourceforge.net/windowssetup.html][Windows]]
+- [[http://davmail.sourceforge.net/linuxsetup.html][Linux]]
+- [[http://davmail.sourceforge.net/macosxsetup.html][Max OS X]]
 
-#+BEGIN_SRC 
-$ brew install gpg gpg-agent pinentry-mac
-#+END_SRC
+You'll need to "[[https://docs.microsoft.com/en-us/graph/auth-register-app-v2][register an app]]" and copy the tenant and client IDs
+and change the following in =~/.davmail.properties=:
 
-Now that GnuPG is installed, we need to import or generate a key.
-
-#+BEGIN_SRC 
-$ gpg --gen-key
-#+END_SRC
-
-Follow the prompts.
-
-Next, we need to create a directory to store password files:
-
-#+BEGIN_SRC 
-$ mkdir ~/.passwd
-#+END_SRC
-
-Create some encrypted password files:
-
-#+BEGIN_SRC 
-$ gpg --output <name>.gpg --encrypt --recipient <you>@example.com <source-file> && rm <source-file>
-#+END_SRC
-
-<source-file> is a file that contains a password in plain text. The above takes that file, encrypts it, and
-deletes it after encryption executes successfully.
-
-We want gpg-agent to behave correctly, so we create ~/.gnupg/gpg-agent.config 
-(or tell GPG that you put it elsewhere using the GNUPGHOME environment variable):
-
-#+BEGIN_SRC 
-# Connects gpg-agent to the OSX keychain via the brew-installed
-# pinentry program from GPGtools. This is the OSX 'magic sauce',
-# allowing the gpg key's passphrase to be stored in the login
-# keychain, enabling automatic key signing.
-
-pinentry-program /usr/local/bin/pinentry-mac
-#+END_SRC
+#+begin_src conf
+davmail.oauth.clientId=yourappid
+davmail.oauth.redirectUri=https://login.microsoftonline.com/common/oauth2/nativeclient
+#+end_src
 
 * mbsync
+:PROPERTIES:
+:HASH:     1cb5099492a6bd15d13f0b03d3910f13
+:MODIFIED: [2020-11-04 Wed 14:05]
+:END:
 
-The next piece of the puzzle is the thing that syncs
-remote mail to a local directory. We'll use isync.
+To sync mail to a local maildir, install =isync=. You can use your
+favorite package manager, but it's worth noting that I ended up
+building =mbsync= from source to remedy some problem I can't remember.
 
-Install it:
+If you're a macOS user, you'll need to download and install a CA
+bundle.  =mbsync= relies on a CA certificate bundle as its trust store
+(as opposed to macOS using Keychain, which iSync doesn't
+support). Download and install a CA cert bundle:
 
-#+BEGIN_SRC 
-$ brew install isync
+#+BEGIN_SRC bash
+wget https://curl.haxx.se/download/curl-7.57.0.tar.gz
+tar xvf curl-7.57.0.tar.gz
+cd curl-7.57.0/lib
+./mk-ca-bundle.crt
+mv ca-bundle.crt ~
 #+END_SRC
 
-mbsync relies on a CA certificate bundle as its trust store (as opposed to
-macOS using Keychain, which iSync doesn't support). Let's make one:
+Now we can tell =mbsync= how to behave via =~/.mbsyncrc=:
 
-#+BEGIN_SRC 
-$ wget https://curl.haxx.se/download/curl-7.57.0.tar.gz
-$ tar xvf curl-7.57.0.tar.gz
-$ cd curl-7.57.0/lib
-$ ./mk-ca-bundle.crt
-$ mv ca-bundle.crt ~
-#+END_SRC
+#+BEGIN_SRC conf
+# [Global]
 
-Now we can tell mbsync how to behave via =~/.mbsyncrc=:
-
-#+BEGIN_SRC 
-IMAPAccount gmail
-# Address to connect to
-Host imap.gmail.com
-User <name>@gmail.com
-# mbsync barfed the first time I tried to run it;
-# https://sourceforge.net/p/isync/mailman/message/34409711/ held the answer
-AuthMechs LOGIN
-# To store the password in an encrypted file use PassCmd instead of Pass
-PassCmd "gpg -q --for-your-eyes-only --no-tty -d ~/.passwd/<name>.gpg"
-#
-# Use SSL
-SSLType IMAPS
-# For macOS, use cURL to create a cert bundle and point to it here
-CertificateFile ~/ca-bundle.crt
-
-IMAPStore gmail-remote
-Account gmail
-
-MaildirStore gmail-local
-# The trailing "/" is important
-Path ~/.mail/gmail/
-Inbox ~/.mail/gmail/Inbox
-
-Channel gmail
-Master :gmail-remote:
-Slave :gmail-local:
-# Exclude everything under the internal [Gmail] folder, except the interesting folders
-Patterns * ![Gmail]* "[Gmail]/Sent Mail" "[Gmail]/Starred" "[Gmail]/All Mail"
-# Or include everything
-#Patterns *
-# Automatically create missing mailboxes, both locally and on the server
+# Create missing mailboxes on producer/consumer.
 Create Both
-# Save the synchronization state files in the relevant directory
+# Equivalent of --full on command line
+Sync All
+# Tells mbsync to save its state to consumer mailbox.
 SyncState *
+# Necessary to avoid duplicate files.
+Expunge Both
+
+# [IMAP Settings]
+
+# Define an account
+IMAPAccount my_cool_account_name
+# The following Host/Port values are correct for DavMail.
+# You'll need to change them if you're using IMAP with GMail or whatever.
+Host localhost
+Port 1143
+User you@example.com
+# This doesn't matter if you're using DavMail.
+# Otherwise, it would be wise to use GPG instead of
+# storing your password in plain text.
+PassCmd "echo foo"
+SSLType None
+AuthMechs LOGIN
+# You may need to point to a different cert bundle if not using Fedora.
+# If you're using macOS, use the path to the cert bundle created above.
+CertificateFile /etc/ssl/certs/ca-bundle.crt
+# Set IMAP timeout to avoid timeout while syncing big files.
+Timeout 300
+
+# [Stores]
+
+# Define remote store and tell it to use account defined
+# above.
+IMAPStore my_cool_account_name-remote
+Account my_cool_account_name
+
+# Define local store to sync with remote.
+MaildirStore my_cool_account_name-local
+# Not sure - docs recommend it.
+Subfolders Verbatim
+# Path to local store.
+Path ~/mail/
+# Tell mbsync where to put INBOX.
+Inbox ~/mail/inbox
+
+# [Channels]
+
+# Define work-inbox channel; remote as producer, local as consumer; syncs
+# INBOX.
+
+Channel my_cool_account_name-inbox
+Master :my_cool_account_name-remote:
+Slave :my_cool_account_name-local:
+Patterns "INBOX"
+
+# As above but sync "Sent Items"
+# Repeat this for every folder you'd like to sync
+
+Channel my_cool_account_name-sent
+Master :my_cool_account_name-remote:"Sent"
+Slave :my_cool_account_name-local:"Sent Items"
+Patterns "Sent"
+
+# [Groups]
+
+# Finally, group all channels together
+
+Group my_cool_account_name
+Channel my_cool_account_name-inbox
+Channel my_cool_account_name-sent
 #+END_SRC
 
-Now's probably a good time to reboot. You can kill gpg-agent to reload its config file,
-but =pinentry-mac= doesn't like taking keyboard input until after a reboot.
+Running =mbsync -a= should now work.
 
-Running =mbsync gmail= should now work. Don't forget to check "Save to Keychain."
+*NOTE*: If you're having trouble, try running =mbsync= with =-v= (with more
+"v"s to increase verbosity). Some problems may be related to the
+=Patterns= directive above. To troubleshoot, try listing remote IMAP
+folders using the following:
+
+#+begin_src bash
+openssl s_client -connect imap.example.com:993 -crlf
+#+end_src
+
+See [[https://tools.ietf.org/html/rfc3501#section-6.1][RFC3501]] section 6.1 for IMAP commands.
 
 * notmuch
+:PROPERTIES:
+:HASH:     056565c240b247721018bf27500acd60
+:MODIFIED: [2020-11-04 Wed 13:47]
+:END:
 
-We can install notmuch now. Install it with support for emacs and Python, just in case:
+Install =notmuch= via your favorite package manager.
 
-#+BEGIN_SRC 
-$ brew install notmuch --with-emacs --with-python3
-#+END_SRC
-
-Now, run =notmuch setup= and follow the prompts. Afterwards, run =notmuch new= to populate the notmuch database.
+Now, run =notmuch setup= and follow the prompts. Afterwards, run =notmuch
+new= to populate the notmuch database.
 
 * msmtp
+:PROPERTIES:
+:HASH:     503d466989f68c14a9f69a87662d2083
+:MODIFIED: [2020-11-04 Wed 14:05]
+:END:
 
 Now we need something to send mail.
 
-Install msmtp:
+Install =msmtp= using your favorite package manager.
 
-#+BEGIN_SRC 
-$ brew install msmtp
-#+END_SRC
+Create =~/.msmtprc= and add the following:
 
-Create ~/.msmtprc and add the following:
-
-#+BEGIN_SRC 
+#+BEGIN_SRC conf
 # Set default values for all following accounts.
 defaults
+# If you're using DavMail, set auth to "plain" and tls to "off".
 auth           on
 tls            on
+# Use the path from above or the CA cert bundle created earlier if you're using macOS.
 tls_trust_file /Users/<name>/ca-bundle.crt
 logfile        ~/.msmtp.log
 
-# Gmail
-account        gmail
-host           smtp.gmail.com
-port           587
-from           <name>@gmail.com
+account        <pick_a_name>
+# If you're using something other than DavMail set the following accordingly.
+host           localhost
+port           1025
+from           <name>@example.com
 user           <name>
+# If you're using DavMail, the following doesn't matter.
 passwordeval   "echo `gpg -q --for-your-eyes-only --no-tty -d ~/.passwd/minort.gpg`"
 
 # Set a default account
-account default : gmail
+account default : work
 #+END_SRC
 
 Test your configuration with the following:
 
-#+BEGIN_SRC 
+#+BEGIN_SRC
 $ msmtp --account=<account> -Sd
 #+END_SRC
 
-* Bring it all together with emacs
+* afew
+:PROPERTIES:
+:HASH:     5c3827a9ed6273372616c106409780cb
+:MODIFIED: [2020-11-04 Wed 14:13]
+:END:
 
-Put this in your init.el:
+I use [[https://github.com/afewmail/afew][afew]] for automatic mail tagging/sorting. My configuration file
+is huge and probably needs updating, but I'll provide a simplified
+version below.
 
-#+BEGIN_SRC 
-;; Mail stuff
-;; tell emacs about the path to notmuch
-(setenv "PATH" (concat (getenv "PATH") ":/usr/local/bin"))
-(setq exec-path (append exec-path '("/usr/local/bin")))
-;; tell emacs about notmuch
-(autoload 'notmuch "notmuch" "notmuch mail" t)
-;; use msmtp
-(setq message-send-mail-function 'message-send-mail-with-sendmail)
-(setq sendmail-program "/usr/local/bin/msmtp")
-;; tell msmtp to choose the SMTP server according to the from field in
-;; the outgoing email
-(setq message-sendmail-extra-arguments '("--read-envelope-from"))
-(setq message-sendmail-f-is-evil 't)
-;; end mail stuff
+#+begin_src conf
+# This is the default filter chain
+[KillThreadsFilter]
+[ArchiveSentMailsFilter]
+[ListMailsFilter]
+
+# [Filter.]
+# message =
+# query =
+# tags =
+
+# You can use regex capture groups for tag assignment using HeaderMatchingFilter.
+# This is an example of a Nagios filter:
+[HeaderMatchingFilter.1]
+header = Subject
+pattern = [*]{2}\s(?P<type>[A-Z]+)\s--\sProject:\s(?P<project>[a-z1-9]+),\s(?P<host>[^/]+)/.*\sis\s(?P<state>\b[A-Z]+\b)
+tags = +{type};+{project};+{host};+{state};+nagios;+updates;-new
+
+[Filter.1]
+message = A cool message
+query = 'subject:"/your kewl/"' AND from:bestfriend@example.com
+tags = +best-friend;-new
+
+[InboxFilter]
+
+[MailMover]
+folders = Inbox "Sent Items" Junk
+rename = True
+# This rule moves mail tagged with "junk" to a Junk folder.
+Inbox = 'tag:junk':Junk
+#+end_src
+
+* muchsync
+:PROPERTIES:
+:HASH:     d57646cee3e722e8ff79b76f0fd52924
+:MODIFIED: [2020-11-04 Wed 14:28]
+:END:
+
+I sync mail on a remote server that's always connected to the internet
+and sync mail to my desktop using [[http://www.muchsync.org/][muchsync]].
+
+* cron/systemd timer
+:PROPERTIES:
+:HASH:     61458f543ec6f97c691799ee58d8c09f
+:MODIFIED: [2020-11-04 Wed 14:32]
+:END:
+
+I use the following script to sync mail using a =systemd= timer:
+
+#+begin_src bash
+#! /bin/bash
+
+vpn_status=$(nmcli connection show vpn | \
+	       grep -i vpn.vpn-state | \
+	       awk '{print $5}')
+
+if [[ $vpn_status =~ "connected" ]]; then
+  /usr/local/bin/muchsync -v example.com -v
+  /usr/bin/emacsclient -e '(tm/notmuch-notify "3mins")'
+fi
+
+exit 0
+#+end_src
+
+Here's the function definition for =tm/notmuch-notify=:
+
+#+begin_src elisp
+(defun tm/notmuch-notify (time-range)
+  "Generate desktop notifcations for new mail received in TIME-RANGE.
+
+This function utilizes `notmuch-call-notmuch-sexp' to fetch the
+latest messages tagged inbox and send a notification to the
+desktop.  TIME-RANGE should be the beginning of an Xapian date
+range.  For example, an input of \"20mins\" translates to
+\"date:20mins..\"."
+  (let* ((latest-messages
+          (apply #'notmuch-call-notmuch-sexp `("search"
+					       "--format=sexp"
+					       "--format-version=4"
+					       "--sort=newest-first"
+					       "tag:inbox"
+					       ,(format "date:%s.." time-range))))
+         (who)
+         (when)
+         (what)
+         (mail-message)
+         (body))
+    (mapcar (lambda (mail-message)
+              (setq when (plist-get mail-message :date_relative))
+              (setq who (if (string-match-p "|"
+                                            (plist-get mail-message :authors))
+                            (progn (string-match "[[:space:],]\\{0,2\\}\\([a-zA-z[:space:]]+\\)|"
+                                                 (plist-get mail-message
+                                                            :authors))
+                                   (match-string 1 (plist-get mail-message
+                                                              :authors)))
+                          (plist-get mail-message :authors)))
+              (setq what (plist-get mail-message :subject))
+              (setq body (format "<b>%s</b>\n<b>%s</b>\n\n%s" when who what))
+              (async-start
+               `(lambda ()
+                  (require 'notifications)
+                  (notifications-notify :title "New message(s)!\n"
+                                        :body ,body
+                                        :app-name "notmuchmail"))
+               'ignore))
+            latest-messages)))
+#+end_src
+
+* emacs
+:PROPERTIES:
+:HASH:     de28f978c4ea84a14cc8a79be8ac3351
+:MODIFIED: [2020-11-04 Wed 14:20]
+:END:
+
+Put this in your =init.el=:
+
+#+BEGIN_SRC elisp
+  (use-package notmuch
+    :config
+    (setq message-send-mail-function 'async-smtpmail-send-it
+          ;; If you use Fedora (or CentOS), it's likely that the
+          ;; alternatives program takes care of this for you.
+          sendmail-program "/usr/local/bin/msmtp"
+          user-mail-address "me@example.com"
+          smtpmail-smtp-user "me@example.com"
+          ;; Choose the appropriate value based on your mail provider;
+          ;; the following is correct for Davmail running locally.
+          smtpmail-smtp-service 1025
+          smtpmail-smtp-server "localhost"
+          ;; If you use multiple mail accounts, you'll need the
+          ;; following.
+          message-sendmail-extra-arguments '("--read-envelope-from")))
 #+END_SRC
 
 That should be enough to do the very basics.
-* Extras
 
-This section outlines all of the extra features that
-go beyond basic functionality like sending, receiving,
-and viewing mail. 
+See =M-x customize-group notmuch= for more customization options.
 
-These extras might include:
-- Filtering spam and other messages,
-- automation with post and pre sync hook scripts,
-- and other TBD things.
+* Spam
+:PROPERTIES:
+:HASH:     4e2bb870c6de0ac409496d0e9570c766
+:MODIFIED: [2020-11-04 Wed 14:33]
+:END:
+
+The following is old and I haven't used it in a couple of years. It
+may or may not work but I'll keep it for posterity.
 
 ** Spam Filtering
+:PROPERTIES:
+:HASH:     0e22f3ec649c64f953098cbdfaaf8104
+:MODIFIED: [2020-11-04 Wed 14:20]
+:END:
 
 I've searched for ways to do this and found many suggestions.
 I happened upon [[https://notmuchmail.org/pipermail/notmuch/2013/014572.html][this post on a notmuch list]] and [[https://github.com/tminor/notspam][this github project]].
@@ -210,21 +374,25 @@ struggling to get it to behave, I instead wrote a Python script
 to do it (found in =.scripts=).
 
 *** Setup Instructions
+:PROPERTIES:
+:HASH:     f4deb4872ea64e0965ad6e5eadaae874
+:MODIFIED: [2020-11-04 Wed 14:20]
+:END:
 
 **** bogofilter
 
 I decided to go with =bogofilter= for spam filtering.
-After much gnashing of teeth, I deduced the following 
+After much gnashing of teeth, I deduced the following
 information regarding installation:
 
-First, you'll need to install the correct version of 
-Berkeley-DB; brew installs Berkeley DB version 6 as 
+First, you'll need to install the correct version of
+Berkeley-DB; brew installs Berkeley DB version 6 as
 a dependency, but I'm not sure it actually works.
 
 When running =bogofilter -s < /dev/null=, I got an
 error that read:
 
-#+BEGIN_SRC 
+#+BEGIN_SRC
 (null)
 Can't open file 'wordlist.db' in directory '/Users/tminor/.bogofilter'.
 error #22 - Invalid argument.
@@ -235,11 +403,11 @@ can handle the format of the data base file (after updates in particular).
 
 I found information in several places insinuating that
 only Berkeley DB version 4 is supported (bogofilter last
-appears to have been updated in 2013). 
+appears to have been updated in 2013).
 
 So. Install Berkeley DB version 4:
 
-#+BEGIN_SRC 
+#+BEGIN_SRC
 $ brew install berkeley-db@4
 #+END_SRC
 
@@ -257,6 +425,10 @@ it Just Worked [TM].)
 You should get a return about the number of messages trained.
 
 *** Training
+:PROPERTIES:
+:HASH:     1bf4ea38e88821f4395d6365d699e3d3
+:MODIFIED: [2020-11-04 Wed 14:20]
+:END:
 
 To train bogofilter, I used the following steps:
 
@@ -266,13 +438,13 @@ it will create a new folder by that name under the maildir.
 
 Tag all mail in that directory with =notmuch=:
 
-#+BEGIN_SRC 
+#+BEGIN_SRC
 $ notmuch tag +spam -- path:"gmail/SpamTraining/cur"
 #+END_SRC
 
 Now, use =notmuch= to train =bogofilter=:
 
-#+BEGIN_SRC 
+#+BEGIN_SRC
 # some spam
 $ notmuch search --output=files tag:spam | xargs bogofilter -svB
 # and some ham
@@ -283,6 +455,10 @@ After =bogofilter= has been trained, feel free to remove the spam samples
 from your machine.
 
 *** Training with a .mbox file
+:PROPERTIES:
+:HASH:     6dee1a1843afbb6068f151195242d8a3
+:MODIFIED: [2020-11-04 Wed 14:21]
+:END:
 
 Alternatively, you can export the mail using Google Takeout,
 which you can find [[https://takeout.google.com/settings/takeout][here]]. You'll have to follow the above steps
@@ -290,12 +466,8 @@ and select the label as the desired target for downloading.
 
 This is probably a good strategy for downloading samples for future
 training in case you need to retrain. I'm guessing the same procedure
-could be followed for training ham, but you'd have to figure out 
+could be followed for training ham, but you'd have to figure out
 how to find ham and apply labels in GMail first. I found that
 =-{label:promotions and label:social}= worked reasonably well as
-a ham search query, but it still captured some stuff I didn't care 
+a ham search query, but it still captured some stuff I didn't care
 to have in my inbox.
-
-** Mail Filtering with afew
-
-For initial tagging, we'll use afew. Thankfully, afew appears to be pretty simple.
